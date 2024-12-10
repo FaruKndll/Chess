@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import messagebox
 import random
 from piece_loader import PieceLoader
+import time
 
 class ChessGame:
     def __init__(self):
@@ -17,6 +18,16 @@ class ChessGame:
         self._current_drag_image = None
         self.possible_moves = []
         
+        # Oyun istatistikleri
+        self.game_stats = {
+            'white_captures': [],  # Beyazın aldığı taşlar
+            'black_captures': [],  # Siyahın aldığı taşlar
+            'move_count': 0,      # Toplam hamle sayısı
+            'check_count': 0,     # Şah durumu sayısı
+            'game_duration': 0,   # Oyun süresi
+            'start_time': None    # Oyun başlangıç zamanı
+        }
+        
         # Renkler
         self.colors = {
             "light_square": "#ecf0f1",    # Açık kare rengi
@@ -25,7 +36,9 @@ class ChessGame:
             "possible_move": "#3498db",    # Olası hamle rengi
             "capture": "#e74c3c",          # Yenilebilir taş rengi
             "bg": "#2c3e50",               # Arka plan rengi
-            "text": "#ecf0f1"              # Yazı rengi
+            "text": "#ecf0f1",             # Yazı rengi
+            "history_bg": "#34495e",       # Hamle geçmişi arka plan rengi
+            "history_text": "#ecf0f1"      # Hamle geçmişi yazı rengi
         }
         
         # Font stilleri
@@ -200,18 +213,51 @@ class ChessGame:
 
     def make_move(self, move):
         """Hamleyi yap ve gerekli güncellemeleri gerçekleştir"""
+        # Piyon terfisi kontrolü
+        if self.is_pawn_promotion(move):
+            move = self.handle_pawn_promotion(move)
+            if not move:  # Kullanıcı terfi penceresini kapattıysa
+                return False
+
+        # Taşın alınıp alınmadığını kontrol et
+        captured_piece = self.board.piece_at(move.to_square)
+        
+        # Hamleyi yap
         san_move = self.board.san(move)
+        
+        # Eğer bir taş alındıysa istatistiklere ekle
+        if captured_piece:
+            piece_symbol = self.get_piece_unicode(captured_piece)
+            if self.board.turn:  # Beyaz hamle yapıyorsa
+                self.game_stats['white_captures'].append(piece_symbol)
+            else:  # Siyah hamle yapıyorsa
+                self.game_stats['black_captures'].append(piece_symbol)
+            self.update_capture_labels()
+
         self.board.push(move)
         
-        # Hamle geçmişini güncelle
-        self.move_history.append(san_move)
-        self.move_history_text.insert(tk.END, f"{len(self.move_history)}. {san_move}\n")
-        self.move_history_text.see(tk.END)
+        # İstatistikleri güncelle
+        self.game_stats['move_count'] += 1
+        if self.board.is_check():
+            self.game_stats['check_count'] += 1
+            self.check_label.config(text="ŞAH!")
+        else:
+            self.check_label.config(text="")
         
+        # Hamle geçmişine ekle
+        move_number = (len(self.move_history) // 2) + 1
+        if len(self.move_history) % 2 == 0:
+            history_text = f"{move_number}. {san_move}"
+        else:
+            history_text = f"    {san_move}"
+        self.move_history.append(san_move)
+        self.history_listbox.insert(tk.END, history_text)
+        self.history_listbox.see(tk.END)
+
         # Tahtayı ve durumu güncelle
         self.update_board()
         self.update_status()
-        self.check_game_state()
+        self.check_game_status()
         
         # Eğer oyun bitmemişse ve sıra siyahtaysa AI hamle yapsın
         if not self.board.is_game_over() and self.board.turn == chess.BLACK:
@@ -421,127 +467,327 @@ class ChessGame:
     def make_ai_move(self):
         """AI'nın hamle yapması"""
         if not self.board.is_game_over():
-            # AI hamlesini al
             best_move = self.get_ai_move()
-            
             if best_move:
+                # Piyon terfisi kontrolü
+                if self.is_pawn_promotion(best_move):
+                    # AI her zaman veziri seçer
+                    best_move = chess.Move(
+                        best_move.from_square,
+                        best_move.to_square,
+                        promotion=chess.QUEEN
+                    )
+
+                # Taşın alınıp alınmadığını kontrol et
+                captured_piece = self.board.piece_at(best_move.to_square)
+                
+                # Hamleyi yap
                 san_move = self.board.san(best_move)
+                
+                # Eğer bir taş alındıysa istatistiklere ekle
+                if captured_piece:
+                    piece_symbol = self.get_piece_unicode(captured_piece)
+                    if self.board.turn:  # Beyaz hamle yapıyorsa (AI)
+                        self.game_stats['white_captures'].append(piece_symbol)
+                    else:  # Siyah hamle yapıyorsa (AI)
+                        self.game_stats['black_captures'].append(piece_symbol)
+                    self.update_capture_labels()
+
                 self.board.push(best_move)
                 
-                # Hamle geçmişini güncelle
+                # İstatistikleri güncelle
+                self.game_stats['move_count'] += 1
+                if self.board.is_check():
+                    self.game_stats['check_count'] += 1
+                    self.check_label.config(text="ŞAH!")
+                else:
+                    self.check_label.config(text="")
+                
+                # Hamle geçmişine ekle
+                move_number = (len(self.move_history) // 2) + 1
+                if len(self.move_history) % 2 == 0:
+                    history_text = f"{move_number}. {san_move}"
+                else:
+                    history_text = f"    {san_move}"
                 self.move_history.append(san_move)
-                self.move_history_text.insert(tk.END, f"{len(self.move_history)}. {san_move}\n")
-                self.move_history_text.see(tk.END)
+                self.history_listbox.insert(tk.END, history_text)
+                self.history_listbox.see(tk.END)
                 
                 # Tahtayı ve durumu güncelle
                 self.update_board()
                 self.update_status()
-                self.check_game_state()
+                self.check_game_status()
 
     def handle_pawn_promotion(self, move):
-        """Handle pawn promotion when a pawn reaches the opposite end of the board."""
-        # Check if the move is a pawn promotion
-        if move.promotion is not None:
-            # Create a promotion window
-            promotion_window = tk.Toplevel(self.window)
-            promotion_window.title("Pawn Promotion")
-            promotion_window.geometry("200x250")
-            promotion_window.resizable(False, False)
+        """Piyon terfisi için kullanıcıdan seçim al"""
+        promotion_window = tk.Toplevel(self.window)
+        promotion_window.title("Piyon Terfisi")
+        promotion_window.configure(bg=self.colors["bg"])
+        
+        # Pencereyi ana pencerenin ortasında göster
+        window_width = 300
+        window_height = 100
+        screen_width = self.window.winfo_screenwidth()
+        screen_height = self.window.winfo_screenheight()
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        promotion_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        
+        # Başlık
+        tk.Label(
+            promotion_window,
+            text="Piyonunuzu terfi ettirin:",
+            font=self.fonts["status"],
+            bg=self.colors["bg"],
+            fg=self.colors["text"]
+        ).pack(pady=10)
+        
+        selected_piece = tk.StringVar(value="q")  # Varsayılan olarak vezir
+        result = {'piece': None}
+        
+        def on_select(piece_type):
+            result['piece'] = piece_type
+            promotion_window.destroy()
+        
+        # Butonlar için frame
+        button_frame = tk.Frame(promotion_window, bg=self.colors["bg"])
+        button_frame.pack(fill="x", padx=20)
+        
+        # Terfi seçenekleri
+        pieces = [
+            ("♕ Vezir", "q"),
+            ("♖ Kale", "r"),
+            ("♗ Fil", "b"),
+            ("♘ At", "n")
+        ]
+        
+        for text, piece_type in pieces:
+            tk.Button(
+                button_frame,
+                text=text,
+                command=lambda p=piece_type: on_select(p),
+                font=self.fonts["history"],
+                bg=self.colors["light_square"],
+                fg=self.colors["dark_square"],
+                width=8
+            ).pack(side="left", padx=5)
+        
+        # Pencere kapanana kadar bekle
+        self.window.wait_window(promotion_window)
+        
+        if result['piece']:
+            # Yeni hamle oluştur
+            return chess.Move(
+                move.from_square,
+                move.to_square,
+                promotion=chess.PIECE_SYMBOLS.index(result['piece'])
+            )
+        return None
 
-            # Center the window
-            promotion_window.transient(self.window)
-            promotion_window.grab_set()
-
-            # Create buttons for each piece type
-            pieces = ['Q', 'R', 'B', 'N']  # Queen, Rook, Bishop, Knight
-            piece_names = {'Q': 'Queen', 'R': 'Rook', 'B': 'Bishop', 'N': 'Knight'}
-
-            def make_promotion_move(piece_type):
-                # Create the promotion move
-                promotion_move = chess.Move(
-                    move.from_square,
-                    move.to_square,
-                    promotion=chess.Piece.from_symbol(piece_type).piece_type
-                )
-                # Make the move
-                self.board.push(promotion_move)
-                # Update the board display
-                self.update_board()
-                # Close the promotion window
-                promotion_window.destroy()
-
-            # Add label
-            tk.Label(promotion_window, text="Choose promotion piece:").pack(pady=10)
-
-            # Create buttons for each piece
-            for piece in pieces:
-                btn = tk.Button(
-                    promotion_window,
-                    text=piece_names[piece],
-                    command=lambda p=piece: make_promotion_move(p)
-                )
-                btn.pack(pady=5)
-
-            # Wait for the window to be closed
-            self.window.wait_window(promotion_window)
-            return True
-
-        return False
-
-    def update_move_history(self):
-        self.move_history_text.delete('1.0', tk.END)
-        for i in range(0, len(self.move_history), 2):
-            move_number = i // 2 + 1
-            white_move = self.move_history[i] if i < len(self.move_history) else ""
-            black_move = self.move_history[i + 1] if i + 1 < len(self.move_history) else ""
+    def is_pawn_promotion(self, move):
+        """Hamlenin piyon terfisi olup olmadığını kontrol et"""
+        piece = self.board.piece_at(move.from_square)
+        if piece is None:
+            return False
             
-            # Her hamle çifti için bir satır oluştur
-            line = f"{move_number}. {white_move:<15} {black_move}\n"
-            self.move_history_text.insert(tk.END, line)
-    
-    def check_game_state(self):
-        if self.board.is_game_over():
-            result = "1-0" if self.board.is_checkmate() and not self.board.turn else "0-1"
-            message = "Oyun bitti! "
-            if self.board.is_checkmate():
-                message += "Şah mat! " + ("Siyah" if self.board.turn else "Beyaz") + " kazandı!"
-            elif self.board.is_stalemate():
-                message += "Pat! Berabere!"
-            elif self.board.is_insufficient_material():
-                message += "Yetersiz materyal! Berabere!"
-            messagebox.showinfo("Oyun Bitti", message)
-    
+        # Piyon mu kontrol et
+        if piece.piece_type != chess.PAWN:
+            return False
+            
+        # Son sıraya ulaştı mı kontrol et
+        rank = chess.square_rank(move.to_square)
+        return (piece.color and rank == 7) or (not piece.color and rank == 0)
+
     def update_status(self):
         self.status_label.config(text="Siyah'ın hamlesi" if self.board.turn == chess.BLACK else "Beyaz'ın hamlesi")
     
+    def check_game_status(self):
+        outcome = self.board.outcome()
+        if outcome is not None:
+            # Oyun süresini hesapla
+            if self.game_stats['start_time']:
+                self.game_stats['game_duration'] = int(time.time() - self.game_stats['start_time'])
+            
+            message = "🏁 Oyun bitti!\n\n"
+            
+            # Kazanan bilgisi
+            if outcome.winner is not None:
+                winner = "♔ Beyaz" if outcome.winner else "♚ Siyah"
+                message += f"{winner} kazandı!\n\n"
+            else:
+                message += "Berabere!\n\n"
+            
+            # Bitiş sebebi
+            message += "Sebep: "
+            if outcome.termination == chess.Termination.CHECKMATE:
+                message += "♛ Şah Mat!"
+            elif outcome.termination == chess.Termination.STALEMATE:
+                message += "Pat durumu!"
+            elif outcome.termination == chess.Termination.INSUFFICIENT_MATERIAL:
+                message += "Yetersiz materyal!"
+            elif outcome.termination == chess.Termination.FIFTY_MOVES:
+                message += "50 hamle kuralı!"
+            elif outcome.termination == chess.Termination.THREEFOLD_REPETITION:
+                message += "Üç kez tekrar!"
+            
+            # Yenilen taşların özeti
+            captures_summary = "\n\nYenilen Taşlar:"
+            if self.game_stats['white_captures'] or self.game_stats['black_captures']:
+                if self.game_stats['white_captures']:
+                    captures_summary += f"\nBeyaz: {' '.join(self.game_stats['white_captures'])}"
+                if self.game_stats['black_captures']:
+                    captures_summary += f"\nSiyah: {' '.join(self.game_stats['black_captures'])}"
+            else:
+                captures_summary += "\nHiç taş alınmadı"
+            
+            # İstatistikler
+            stats = f"\n\nOyun İstatistikleri:\n"
+            stats += f"• Toplam Hamle: {self.game_stats['move_count']}\n"
+            stats += f"• Şah Durumu: {self.game_stats['check_count']} kez\n"
+            stats += f"• Süre: {self.game_stats['game_duration']} saniye"
+            
+            message += captures_summary + stats
+
+            # Özel tasarlanmış mesaj kutusu
+            result = messagebox.showinfo(
+                "🎮 Oyun Bitti",
+                message,
+                icon=messagebox.INFO
+            )
+
+            # Yeni oyun başlatmak için sor
+            if messagebox.askyesno("🔄 Yeni Oyun", "Yeni bir oyun başlatmak ister misiniz?"):
+                self.reset_game()
+            else:
+                self.window.quit()
+
+    def update_capture_labels(self):
+        """Alınan taşları gösteren etiketleri güncelle"""
+        white_text = "Beyaz'ın aldığı taşlar: "
+        black_text = "Siyah'ın aldığı taşlar: "
+        
+        # Beyazın aldığı taşları göster
+        if self.game_stats['white_captures']:
+            white_text += " ".join(self.game_stats['white_captures'])
+        else:
+            white_text += "Henüz taş alınmadı"
+            
+        # Siyahın aldığı taşları göster
+        if self.game_stats['black_captures']:
+            black_text += " ".join(self.game_stats['black_captures'])
+        else:
+            black_text += "Henüz taş alınmadı"
+        
+        self.white_captures_label.config(text=white_text)
+        self.black_captures_label.config(text=black_text)
+
+    def get_piece_unicode(self, piece):
+        """Taş sembolünü Unicode karaktere çevir"""
+        symbols = {
+            'P': '♙', 'N': '♘', 'B': '♗', 'R': '♖', 'Q': '♕', 'K': '♔',  # Beyaz taşlar
+            'p': '♟', 'n': '♞', 'b': '♝', 'r': '♜', 'q': '♛', 'k': '♚'   # Siyah taşlar
+        }
+        return symbols.get(piece.symbol(), '?')
+
     def setup_gui(self):
         """GUI bileşenlerini oluştur ve yerleştir"""
         # Ana container
-        main_container = tk.Frame(self.window, bg=self.colors["bg"])
-        main_container.pack(padx=20, pady=20, fill=tk.BOTH, expand=True)
-        
-        # Sol panel (satranç tahtası)
-        left_panel = tk.Frame(main_container, bg=self.colors["bg"])
-        left_panel.pack(side=tk.LEFT, padx=(0, 20))
-        
-        # Durum ve şah bildirisi için üst panel
-        status_panel = tk.Frame(left_panel, bg=self.colors["bg"])
-        status_panel.pack(fill=tk.X, pady=(0, 10))
-        
+        self.main_frame = tk.Frame(self.window, bg=self.colors["bg"])
+        self.main_frame.pack(expand=True, fill="both", padx=20, pady=20)
+
+        # Sol taraf - Satranç tahtası
+        self.board_frame = tk.Frame(self.main_frame, bg=self.colors["bg"])
+        self.board_frame.pack(side="left", padx=(0, 20))
+
+        # Sağ taraf - Hamle geçmişi ve durum
+        self.right_frame = tk.Frame(self.main_frame, bg=self.colors["bg"])
+        self.right_frame.pack(side="left", fill="both", expand=True)
+
         # Durum etiketi
-        self.status_label = tk.Label(status_panel, text="Beyaz'ın hamlesi",
-                                   font=self.fonts["status"], bg=self.colors["bg"],
-                                   fg=self.colors["text"])
-        self.status_label.pack(side=tk.LEFT)
+        self.status_frame = tk.Frame(self.right_frame, bg=self.colors["bg"])
+        self.status_frame.pack(fill="x", pady=(0, 10))
+        
+        self.status_label = tk.Label(
+            self.status_frame,
+            text="Beyaz'ın hamlesi",
+            font=self.fonts["status"],
+            bg=self.colors["bg"],
+            fg=self.colors["text"]
+        )
+        self.status_label.pack(side="left")
         
         # Şah durumu etiketi
-        self.check_label = tk.Label(status_panel, text="",
-                                  font=self.fonts["status"], bg=self.colors["bg"],
-                                  fg=self.colors["capture"])
-        self.check_label.pack(side=tk.RIGHT)
+        self.check_label = tk.Label(
+            self.status_frame,
+            text="",
+            font=self.fonts["status"],
+            bg=self.colors["bg"],
+            fg=self.colors["capture"]
+        )
+        self.check_label.pack(side="right")
+
+        # İstatistikler
+        self.stats_frame = tk.Frame(self.right_frame, bg=self.colors["bg"])
+        self.stats_frame.pack(fill="x", pady=(0, 10))
         
+        # Beyaz taşların aldıkları
+        self.white_captures_label = tk.Label(
+            self.stats_frame,
+            text="Beyaz'ın aldığı taşlar:",
+            font=self.fonts["history"],
+            bg=self.colors["bg"],
+            fg=self.colors["text"]
+        )
+        self.white_captures_label.pack(anchor="w")
+        
+        # Siyah taşların aldıkları
+        self.black_captures_label = tk.Label(
+            self.stats_frame,
+            text="Siyah'ın aldığı taşlar:",
+            font=self.fonts["history"],
+            bg=self.colors["bg"],
+            fg=self.colors["text"]
+        )
+        self.black_captures_label.pack(anchor="w")
+
+        # Hamle geçmişi başlığı
+        self.history_title = tk.Label(
+            self.right_frame,
+            text="Hamle Geçmişi",
+            font=self.fonts["history_title"],
+            bg=self.colors["bg"],
+            fg=self.colors["text"]
+        )
+        self.history_title.pack(pady=(0, 5))
+
+        # Hamle geçmişi listesi
+        self.history_frame = tk.Frame(
+            self.right_frame,
+            bg=self.colors["history_bg"],
+            width=200,
+            height=400
+        )
+        self.history_frame.pack(fill="both", expand=True)
+        self.history_frame.pack_propagate(False)
+
+        # Hamle geçmişi listbox
+        self.history_listbox = tk.Listbox(
+            self.history_frame,
+            bg=self.colors["history_bg"],
+            fg=self.colors["history_text"],
+            font=self.fonts["history"],
+            selectmode="none",
+            width=25
+        )
+        self.history_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # Satranç tahtası kareleri
+        self.squares = {}
+        self.create_board()
+    
+    def create_board(self):
         # Satranç tahtası için frame
-        board_container = tk.Frame(left_panel, bg=self.colors["bg"])
+        board_container = tk.Frame(self.board_frame, bg=self.colors["bg"])
         board_container.pack(padx=10, pady=10)
         
         # Satranç tahtası ve koordinatlar için ana frame
@@ -620,34 +866,48 @@ class ChessGame:
             tk.Label(coord_frame, text=chr(65+i), font=self.fonts["coordinates"],
                     fg=self.colors["text"], bg=self.colors["bg"]).place(relx=0.5, rely=0.5, anchor="center")
         
-        # Sağ panel (bilgi paneli)
-        info_panel = tk.Frame(main_container, bg=self.colors["bg"])
-        info_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        # Hamle geçmişi başlığı
-        history_title = tk.Label(info_panel, text="Hamle Geçmişi",
-                               font=self.fonts["history_title"],
-                               bg=self.colors["bg"], fg=self.colors["text"])
-        history_title.pack(pady=(0, 5))
-        
-        # Hamle geçmişi text widget'ı
-        self.move_history_text = tk.Text(info_panel, height=20, width=30,
-                                       font=self.fonts["history"],
-                                       bg=self.colors["dark_square"],
-                                       fg=self.colors["text"],
-                                       insertbackground=self.colors["text"])
-        self.move_history_text.pack(fill=tk.BOTH, expand=True)
-        
-        # Scrollbar ekle
-        scrollbar = tk.Scrollbar(info_panel, command=self.move_history_text.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.move_history_text.config(yscrollcommand=scrollbar.set)
-        
         # İlk tahtayı çiz
         self.update_board()
     
     def run(self):
+        self.game_stats['start_time'] = time.time()
         self.window.mainloop()
+
+    def reset_game(self):
+        """Oyunu sıfırla ve yeni oyun başlat"""
+        # Tahtayı sıfırla
+        self.board = chess.Board()
+        
+        # İstatistikleri sıfırla
+        self.game_stats = {
+            'white_captures': [],
+            'black_captures': [],
+            'move_count': 0,
+            'check_count': 0,
+            'game_duration': 0,
+            'start_time': time.time()
+        }
+        
+        # Hamle geçmişini temizle
+        self.move_history = []
+        self.history_listbox.delete(0, tk.END)
+        
+        # Etiketleri sıfırla
+        self.update_capture_labels()
+        self.check_label.config(text="")
+        
+        # Seçimleri sıfırla
+        self.selected_square = None
+        self.dragging = False
+        self.drag_image_label = None
+        self._current_drag_image = None
+        self.possible_moves = []
+        
+        # Tahtayı güncelle
+        self.update_board()
+        
+        # Durumu güncelle
+        self.status_label.config(text="Beyaz'ın hamlesi")
 
 if __name__ == "__main__":
     game = ChessGame()
