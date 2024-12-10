@@ -4,56 +4,33 @@ from tkinter import messagebox
 import random
 from piece_loader import PieceLoader
 import time
+from chess_ai import ChessAI
+from advanced_ai import AdvancedChessAI
 
 class ChessGame:
     def __init__(self):
         self.window = tk.Tk()
-        self.window.title("Modern Satranç Oyunu")
-        self.window.configure(bg="#2c3e50")  # Koyu mavi-gri arka plan
-        
-        # Oyun durumu değişkenleri
+        self.window.title("Satranç Oyunu")
+        self.board = chess.Board()
+        self.pieces = PieceLoader(size=50)
+        self.move_history = []
         self.selected_square = None
         self.dragging = False
         self.drag_image_label = None
         self._current_drag_image = None
         self.possible_moves = []
-        
-        # Oyun istatistikleri
         self.game_stats = {
-            'white_captures': [],  # Beyazın aldığı taşlar
-            'black_captures': [],  # Siyahın aldığı taşlar
-            'move_count': 0,      # Toplam hamle sayısı
-            'check_count': 0,     # Şah durumu sayısı
-            'game_duration': 0,   # Oyun süresi
-            'start_time': None    # Oyun başlangıç zamanı
+            'white_captures': [],
+            'black_captures': [],
+            'move_count': 0,
+            'check_count': 0,
+            'game_duration': 0,
+            'start_time': None
         }
-        
-        # Renkler
-        self.colors = {
-            "light_square": "#ecf0f1",    # Açık kare rengi
-            "dark_square": "#34495e",      # Koyu kare rengi
-            "selected": "#27ae60",         # Seçili kare rengi
-            "possible_move": "#3498db",    # Olası hamle rengi
-            "capture": "#e74c3c",          # Yenilebilir taş rengi
-            "bg": "#2c3e50",               # Arka plan rengi
-            "text": "#ecf0f1",             # Yazı rengi
-            "history_bg": "#34495e",       # Hamle geçmişi arka plan rengi
-            "history_text": "#ecf0f1"      # Hamle geçmişi yazı rengi
-        }
-        
-        # Font stilleri
-        self.fonts = {
-            "coordinates": ("Roboto", 12),
-            "status": ("Roboto", 14),
-            "history_title": ("Roboto", 14, "bold"),
-            "history": ("Roboto", 12)
-        }
-        
-        self.board = chess.Board()
-        self.pieces = PieceLoader(size=50)
-        self.move_history = []  # Hamle geçmişini tutacak liste
-        self.setup_gui()
-        
+        self.difficulty = "easy"
+        self.ai = None
+        self.show_main_menu()
+
     def get_piece_symbol(self, piece):
         if piece is None:
             return None
@@ -81,17 +58,17 @@ class ChessGame:
                     continue
                 
                 # Temel arka plan rengini ayarla
-                base_color = self.colors["light_square"] if (row + col) % 2 == 0 else self.colors["dark_square"]
+                base_color = "#ecf0f1" if (row + col) % 2 == 0 else "#34495e"
                 button.configure(bg=base_color)
                 frame.configure(bg=base_color)
                 
                 # Seçili kare için ince kenarlık
                 if square == self.selected_square:
-                    frame.configure(highlightbackground=self.colors["selected"], highlightthickness=2)
+                    frame.configure(highlightbackground="#27ae60", highlightthickness=2)
                 # Olası hamleler için gösterge
                 elif square in [move.to_square for move in self.possible_moves]:
                     if self.board.piece_at(square):
-                        button.configure(bg=self.colors["capture"])
+                        button.configure(bg="#e74c3c")
                     else:
                         for widget in button.winfo_children():
                             if isinstance(widget, tk.Canvas):
@@ -101,8 +78,8 @@ class ChessGame:
                         indicator = tk.Canvas(button, width=16, height=16,
                                            bg=base_color, highlightthickness=0)
                         indicator.create_oval(2, 2, 14, 14,
-                                           fill=self.colors["possible_move"],
-                                           outline=self.colors["text"],
+                                           fill="#3498db",
+                                           outline="#ecf0f1",
                                            width=1)
                         indicator.place(relx=0.5, rely=0.5, anchor="center")
                 else:
@@ -257,7 +234,7 @@ class ChessGame:
         # Tahtayı ve durumu güncelle
         self.update_board()
         self.update_status()
-        self.check_game_status()
+        self.update_game_status()
         
         # Eğer oyun bitmemişse ve sıra siyahtaysa AI hamle yapsın
         if not self.board.is_game_over() and self.board.turn == chess.BLACK:
@@ -516,13 +493,13 @@ class ChessGame:
                 # Tahtayı ve durumu güncelle
                 self.update_board()
                 self.update_status()
-                self.check_game_status()
+                self.update_game_status()
 
     def handle_pawn_promotion(self, move):
         """Piyon terfisi için kullanıcıdan seçim al"""
         promotion_window = tk.Toplevel(self.window)
         promotion_window.title("Piyon Terfisi")
-        promotion_window.configure(bg=self.colors["bg"])
+        promotion_window.configure(bg="#2c3e50")
         
         # Pencereyi ana pencerenin ortasında göster
         window_width = 300
@@ -537,9 +514,9 @@ class ChessGame:
         tk.Label(
             promotion_window,
             text="Piyonunuzu terfi ettirin:",
-            font=self.fonts["status"],
-            bg=self.colors["bg"],
-            fg=self.colors["text"]
+            font=("Roboto", 14),
+            bg="#2c3e50",
+            fg="#ecf0f1"
         ).pack(pady=10)
         
         selected_piece = tk.StringVar(value="q")  # Varsayılan olarak vezir
@@ -550,7 +527,7 @@ class ChessGame:
             promotion_window.destroy()
         
         # Butonlar için frame
-        button_frame = tk.Frame(promotion_window, bg=self.colors["bg"])
+        button_frame = tk.Frame(promotion_window, bg="#2c3e50")
         button_frame.pack(fill="x", padx=20)
         
         # Terfi seçenekleri
@@ -566,9 +543,9 @@ class ChessGame:
                 button_frame,
                 text=text,
                 command=lambda p=piece_type: on_select(p),
-                font=self.fonts["history"],
-                bg=self.colors["light_square"],
-                fg=self.colors["dark_square"],
+                font=("Roboto", 12),
+                bg="#ecf0f1",
+                fg="#2c3e50",
                 width=8
             ).pack(side="left", padx=5)
         
@@ -601,65 +578,45 @@ class ChessGame:
     def update_status(self):
         self.status_label.config(text="Siyah'ın hamlesi" if self.board.turn == chess.BLACK else "Beyaz'ın hamlesi")
     
-    def check_game_status(self):
-        outcome = self.board.outcome()
-        if outcome is not None:
-            # Oyun süresini hesapla
-            if self.game_stats['start_time']:
-                self.game_stats['game_duration'] = int(time.time() - self.game_stats['start_time'])
+    def update_game_status(self):
+        """Oyun durumunu güncelle"""
+        if self.board.is_game_over():
+            self.handle_game_over(self.board.result())
+        else:
+            current_turn = "Beyaz" if self.board.turn else "Siyah"
+            self.status_label.config(text=f"{current_turn}'ın hamlesi")
             
-            message = "🏁 Oyun bitti!\n\n"
-            
-            # Kazanan bilgisi
-            if outcome.winner is not None:
-                winner = "♔ Beyaz" if outcome.winner else "♚ Siyah"
-                message += f"{winner} kazandı!\n\n"
+            if self.board.is_check():
+                self.check_label.config(text="ŞAH!")
+                self.game_stats['check_count'] += 1
             else:
-                message += "Berabere!\n\n"
-            
-            # Bitiş sebebi
-            message += "Sebep: "
-            if outcome.termination == chess.Termination.CHECKMATE:
-                message += "♛ Şah Mat!"
-            elif outcome.termination == chess.Termination.STALEMATE:
-                message += "Pat durumu!"
-            elif outcome.termination == chess.Termination.INSUFFICIENT_MATERIAL:
-                message += "Yetersiz materyal!"
-            elif outcome.termination == chess.Termination.FIFTY_MOVES:
-                message += "50 hamle kuralı!"
-            elif outcome.termination == chess.Termination.THREEFOLD_REPETITION:
-                message += "Üç kez tekrar!"
-            
-            # Yenilen taşların özeti
-            captures_summary = "\n\nYenilen Taşlar:"
-            if self.game_stats['white_captures'] or self.game_stats['black_captures']:
-                if self.game_stats['white_captures']:
-                    captures_summary += f"\nBeyaz: {' '.join(self.game_stats['white_captures'])}"
-                if self.game_stats['black_captures']:
-                    captures_summary += f"\nSiyah: {' '.join(self.game_stats['black_captures'])}"
-            else:
-                captures_summary += "\nHiç taş alınmadı"
-            
-            # İstatistikler
-            stats = f"\n\nOyun İstatistikleri:\n"
-            stats += f"• Toplam Hamle: {self.game_stats['move_count']}\n"
-            stats += f"• Şah Durumu: {self.game_stats['check_count']} kez\n"
-            stats += f"• Süre: {self.game_stats['game_duration']} saniye"
-            
-            message += captures_summary + stats
+                self.check_label.config(text="")
 
-            # Özel tasarlanmış mesaj kutusu
-            result = messagebox.showinfo(
-                "🎮 Oyun Bitti",
-                message,
-                icon=messagebox.INFO
-            )
+    def handle_game_over(self, result):
+        """Oyun bittiğinde kullanıcıya seçenek sun"""
+        message = ""
+        if result == "1-0":
+            message = "Beyaz kazandı!"
+        elif result == "0-1":
+            message = "Siyah kazandı!"
+        else:
+            message = "Berabere!"
 
-            # Yeni oyun başlatmak için sor
-            if messagebox.askyesno("🔄 Yeni Oyun", "Yeni bir oyun başlatmak ister misiniz?"):
-                self.reset_game()
-            else:
-                self.window.quit()
+        # Oyun sonu istatistiklerini ekle
+        total_time = int(time.time() - self.game_stats['start_time'])
+        stats = f"\n\nOyun İstatistikleri:\n"
+        stats += f"Toplam Hamle: {self.game_stats['move_count']}\n"
+        stats += f"Şah Durumu: {self.game_stats['check_count']} kez\n"
+        stats += f"Oyun Süresi: {total_time} saniye"
+
+        # Kullanıcıya sor
+        answer = messagebox.askyesno(
+            "Oyun Bitti",
+            message + stats + "\n\nTekrar oynamak ister misiniz?"
+        )
+        
+        # Her iki durumda da ana menüye dön
+        self.show_main_menu()
 
     def update_capture_labels(self):
         """Alınan taşları gösteren etiketleri güncelle"""
@@ -692,27 +649,27 @@ class ChessGame:
     def setup_gui(self):
         """GUI bileşenlerini oluştur ve yerleştir"""
         # Ana container
-        self.main_frame = tk.Frame(self.window, bg=self.colors["bg"])
+        self.main_frame = tk.Frame(self.window, bg="#2c3e50")
         self.main_frame.pack(expand=True, fill="both", padx=20, pady=20)
 
         # Sol taraf - Satranç tahtası
-        self.board_frame = tk.Frame(self.main_frame, bg=self.colors["bg"])
+        self.board_frame = tk.Frame(self.main_frame, bg="#2c3e50")
         self.board_frame.pack(side="left", padx=(0, 20))
 
         # Sağ taraf - Hamle geçmişi ve durum
-        self.right_frame = tk.Frame(self.main_frame, bg=self.colors["bg"])
+        self.right_frame = tk.Frame(self.main_frame, bg="#2c3e50")
         self.right_frame.pack(side="left", fill="both", expand=True)
 
         # Durum etiketi
-        self.status_frame = tk.Frame(self.right_frame, bg=self.colors["bg"])
+        self.status_frame = tk.Frame(self.right_frame, bg="#2c3e50")
         self.status_frame.pack(fill="x", pady=(0, 10))
         
         self.status_label = tk.Label(
             self.status_frame,
             text="Beyaz'ın hamlesi",
-            font=self.fonts["status"],
-            bg=self.colors["bg"],
-            fg=self.colors["text"]
+            font=("Helvetica", 14),
+            bg="#2c3e50",
+            fg="#ecf0f1"
         )
         self.status_label.pack(side="left")
         
@@ -720,23 +677,23 @@ class ChessGame:
         self.check_label = tk.Label(
             self.status_frame,
             text="",
-            font=self.fonts["status"],
-            bg=self.colors["bg"],
-            fg=self.colors["capture"]
+            font=("Helvetica", 14),
+            bg="#2c3e50",
+            fg="#e74c3c"
         )
         self.check_label.pack(side="right")
 
         # İstatistikler
-        self.stats_frame = tk.Frame(self.right_frame, bg=self.colors["bg"])
+        self.stats_frame = tk.Frame(self.right_frame, bg="#2c3e50")
         self.stats_frame.pack(fill="x", pady=(0, 10))
         
         # Beyaz taşların aldıkları
         self.white_captures_label = tk.Label(
             self.stats_frame,
             text="Beyaz'ın aldığı taşlar:",
-            font=self.fonts["history"],
-            bg=self.colors["bg"],
-            fg=self.colors["text"]
+            font=("Helvetica", 12),
+            bg="#2c3e50",
+            fg="#ecf0f1"
         )
         self.white_captures_label.pack(anchor="w")
         
@@ -744,9 +701,9 @@ class ChessGame:
         self.black_captures_label = tk.Label(
             self.stats_frame,
             text="Siyah'ın aldığı taşlar:",
-            font=self.fonts["history"],
-            bg=self.colors["bg"],
-            fg=self.colors["text"]
+            font=("Helvetica", 12),
+            bg="#2c3e50",
+            fg="#ecf0f1"
         )
         self.black_captures_label.pack(anchor="w")
 
@@ -754,16 +711,16 @@ class ChessGame:
         self.history_title = tk.Label(
             self.right_frame,
             text="Hamle Geçmişi",
-            font=self.fonts["history_title"],
-            bg=self.colors["bg"],
-            fg=self.colors["text"]
+            font=("Helvetica", 14, "bold"),
+            bg="#2c3e50",
+            fg="#ecf0f1"
         )
         self.history_title.pack(pady=(0, 5))
 
         # Hamle geçmişi listesi
         self.history_frame = tk.Frame(
             self.right_frame,
-            bg=self.colors["history_bg"],
+            bg="#34495e",
             width=200,
             height=400
         )
@@ -773,9 +730,9 @@ class ChessGame:
         # Hamle geçmişi listbox
         self.history_listbox = tk.Listbox(
             self.history_frame,
-            bg=self.colors["history_bg"],
-            fg=self.colors["history_text"],
-            font=self.fonts["history"],
+            bg="#34495e",
+            fg="#ecf0f1",
+            font=("Helvetica", 12),
             selectmode="none",
             width=25
         )
@@ -787,31 +744,31 @@ class ChessGame:
     
     def create_board(self):
         # Satranç tahtası için frame
-        board_container = tk.Frame(self.board_frame, bg=self.colors["bg"])
+        board_container = tk.Frame(self.board_frame, bg="#2c3e50")
         board_container.pack(padx=10, pady=10)
         
         # Satranç tahtası ve koordinatlar için ana frame
-        board_with_coords = tk.Frame(board_container, bg=self.colors["bg"])
+        board_with_coords = tk.Frame(board_container, bg="#2c3e50")
         board_with_coords.pack(padx=10, pady=10)
         
         # Orta kısım (sol koordinatlar + tahta)
-        middle_section = tk.Frame(board_with_coords, bg=self.colors["bg"])
+        middle_section = tk.Frame(board_with_coords, bg="#2c3e50")
         middle_section.pack()
         
         # Sol koordinatlar
-        left_coords = tk.Frame(middle_section, bg=self.colors["bg"])
+        left_coords = tk.Frame(middle_section, bg="#2c3e50")
         left_coords.pack(side=tk.LEFT, padx=(0, 5))
         
         # Satranç tahtası
-        board_section = tk.Frame(middle_section, bg=self.colors["bg"])
+        board_section = tk.Frame(middle_section, bg="#2c3e50")
         board_section.pack(side=tk.LEFT)
         
         # Satranç tahtası frame'i
-        self.frame = tk.Frame(board_section, bg=self.colors["bg"])
+        self.frame = tk.Frame(board_section, bg="#2c3e50")
         self.frame.pack()
         
         # Alt koordinatlar için frame
-        bottom_coords = tk.Frame(board_section, bg=self.colors["bg"])
+        bottom_coords = tk.Frame(board_section, bg="#2c3e50")
         bottom_coords.pack(fill=tk.X)
         
         # Satranç tahtası düğmeleri
@@ -820,11 +777,11 @@ class ChessGame:
         
         # Sol koordinatları yerleştir (8'den 1'e)
         for i in range(8):
-            coord_frame = tk.Frame(left_coords, width=20, height=square_size, bg=self.colors["bg"])
+            coord_frame = tk.Frame(left_coords, width=20, height=square_size, bg="#2c3e50")
             coord_frame.pack_propagate(False)
             coord_frame.pack()
-            tk.Label(coord_frame, text=str(8-i), font=self.fonts["coordinates"], 
-                    fg=self.colors["text"], bg=self.colors["bg"]).place(relx=0.5, rely=0.5, anchor="center")
+            tk.Label(coord_frame, text=str(8-i), font=("Helvetica", 12), 
+                    fg="#ecf0f1", bg="#2c3e50").place(relx=0.5, rely=0.5, anchor="center")
         
         # Satranç kareleri
         for row in range(8):
@@ -836,7 +793,7 @@ class ChessGame:
                     width=square_size,
                     height=square_size,
                     highlightthickness=0,
-                    bg=self.colors["light_square"] if (row + col) % 2 == 0 else self.colors["dark_square"]
+                    bg="#ecf0f1" if (row + col) % 2 == 0 else "#34495e"
                 )
                 square_frame.grid(row=row, column=col)
                 square_frame.grid_propagate(False)
@@ -846,7 +803,7 @@ class ChessGame:
                     square_frame,
                     width=square_size,
                     height=square_size,
-                    bg=self.colors["light_square"] if (row + col) % 2 == 0 else self.colors["dark_square"]
+                    bg="#ecf0f1" if (row + col) % 2 == 0 else "#34495e"
                 )
                 square_label.place(relx=0.5, rely=0.5, anchor="center")
                 
@@ -860,18 +817,136 @@ class ChessGame:
         
         # Alt koordinatları yerleştir (A'dan H'ye)
         for i in range(8):
-            coord_frame = tk.Frame(bottom_coords, width=square_size, height=20, bg=self.colors["bg"])
+            coord_frame = tk.Frame(bottom_coords, width=square_size, height=20, bg="#2c3e50")
             coord_frame.pack_propagate(False)
             coord_frame.pack(side=tk.LEFT)
-            tk.Label(coord_frame, text=chr(65+i), font=self.fonts["coordinates"],
-                    fg=self.colors["text"], bg=self.colors["bg"]).place(relx=0.5, rely=0.5, anchor="center")
+            tk.Label(coord_frame, text=chr(65+i), font=("Helvetica", 12),
+                    fg="#ecf0f1", bg="#2c3e50").place(relx=0.5, rely=0.5, anchor="center")
         
         # İlk tahtayı çiz
         self.update_board()
     
-    def run(self):
-        self.game_stats['start_time'] = time.time()
-        self.window.mainloop()
+    def show_main_menu(self):
+        """Modern ana menüyü göster"""
+        # Ana pencereyi yapılandır
+        self.window.geometry("800x600")
+        self.window.configure(bg="#2c3e50")
+
+        # Ana penceredeki mevcut widget'ları temizle
+        for widget in self.window.winfo_children():
+            widget.destroy()
+
+        # Ana menü frame'i
+        menu_frame = tk.Frame(self.window, bg="#2c3e50")
+        menu_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+        # Başlık
+        title = tk.Label(menu_frame, 
+                        text="♔ Modern Satranç ♔",
+                        font=("Helvetica", 36, "bold"),
+                        bg="#2c3e50",
+                        fg="#ecf0f1")
+        title.pack(pady=30)
+
+        # Alt başlık
+        subtitle = tk.Label(menu_frame,
+                          text="Zorluk Seviyesini Seçin",
+                          font=("Helvetica", 18),
+                          bg="#2c3e50",
+                          fg="#bdc3c7")
+        subtitle.pack(pady=(0, 30))
+
+        # Zorluk seviyeleri için butonlar
+        difficulties = [
+            ("Kolay Seviye", "easy", "#27ae60"),
+            ("Orta Seviye", "medium", "#2980b9"),
+            ("Zor Seviye", "hard", "#c0392b")
+        ]
+
+        for text, value, color in difficulties:
+            btn_frame = tk.Frame(menu_frame, bg="#2c3e50")
+            btn_frame.pack(pady=10)
+            
+            btn = tk.Button(btn_frame, 
+                          text=text,
+                          font=("Helvetica", 14),
+                          bg=color,
+                          fg="#ffffff",
+                          width=20,
+                          height=2,
+                          relief="flat",
+                          command=lambda v=value: self.start_game(v))
+            btn.pack()
+
+            # Hover efekti
+            btn.bind("<Enter>", lambda e, b=btn, c=color: b.configure(bg=self.adjust_color(c, 1.1)))
+            btn.bind("<Leave>", lambda e, b=btn, c=color: b.configure(bg=c))
+
+    def adjust_color(self, color, factor):
+        """Rengi aydınlat/koyulaştır"""
+        # Hex renk kodunu RGB'ye çevir
+        r = int(color[1:3], 16)
+        g = int(color[3:5], 16)
+        b = int(color[5:7], 16)
+        
+        # Renkleri ayarla
+        r = min(255, int(r * factor))
+        g = min(255, int(g * factor))
+        b = min(255, int(b * factor))
+        
+        # RGB'yi hex'e geri çevir
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def start_game(self, difficulty):
+        """Yeni oyun başlat"""
+        self.difficulty = difficulty
+        # Zorluk seviyesine göre AI'ı ayarla
+        if difficulty == "easy":
+            self.ai = ChessAI(difficulty="easy")
+            difficulty_text = "Kolay Seviye"
+        elif difficulty == "medium":
+            self.ai = ChessAI(difficulty="medium")
+            difficulty_text = "Orta Seviye"
+        else:  # hard
+            self.ai = AdvancedChessAI()
+            difficulty_text = "Zor Seviye"
+
+        # Oyunu sıfırla
+        self.board = chess.Board()
+        self.selected_square = None
+        self.dragging = False
+        self.drag_image_label = None
+        self._current_drag_image = None
+        self.possible_moves = []
+        self.move_history = []
+        self.game_stats = {
+            'white_captures': [],
+            'black_captures': [],
+            'move_count': 0,
+            'check_count': 0,
+            'game_duration': 0,
+            'start_time': time.time()
+        }
+
+        # Ana penceredeki menüyü temizle
+        for widget in self.window.winfo_children():
+            widget.destroy()
+
+        # Oyun arayüzünü oluştur
+        self.setup_gui()
+
+        # Zorluk seviyesi göstergesi
+        difficulty_label = tk.Label(
+            self.right_frame,
+            text=f"Zorluk: {difficulty_text}",
+            font=("Helvetica", 12, "bold"),
+            bg="#2c3e50",
+            fg="#ecf0f1"
+        )
+        difficulty_label.pack(pady=(0, 10))
+
+        # Oyun tahtasını güncelle
+        self.update_board()
 
     def reset_game(self):
         """Oyunu sıfırla ve yeni oyun başlat"""
@@ -908,6 +983,13 @@ class ChessGame:
         
         # Durumu güncelle
         self.status_label.config(text="Beyaz'ın hamlesi")
+
+        # Ana menüye dön
+        self.show_main_menu()
+
+    def run(self):
+        self.show_main_menu()
+        self.window.mainloop()
 
 if __name__ == "__main__":
     game = ChessGame()
